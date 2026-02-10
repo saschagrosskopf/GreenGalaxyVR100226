@@ -643,6 +643,44 @@ export const InfiniteCanvas: React.FC<CanvasProps> = ({ spaceId, userId, userNam
         }
     };
 
+    const [ghostPos, setGhostPos] = useState<[number, number, number] | null>(null);
+
+    // Ghost Preview Logic
+    const renderGhost = () => {
+        if (!ghostPos || mode === 'select' || mode === 'pan' || mode === 'eraser') return null;
+
+        const y = isVR ? 0.05 : 0.01;
+        const rot: [number, number, number] = isVR ? [0, 0, 0] : [-Math.PI / 2, 0, 0];
+
+        return (
+            <group position={ghostPos} rotation={rot}>
+                {mode === 'sticky' && (
+                    <mesh rotation={[-Math.PI / 2, 0, 0]}>
+                        <planeGeometry args={[0.8, 0.8]} />
+                        <meshBasicMaterial color={color} transparent opacity={0.5} />
+                    </mesh>
+                )}
+                {mode === 'shape' && (
+                    <mesh rotation={[-Math.PI / 2, 0, 0]}>
+                        <planeGeometry args={[1, 0.6]} />
+                        <meshBasicMaterial color={color} transparent opacity={0.5} />
+                    </mesh>
+                )}
+                {mode === 'text' && (
+                    <Text fontSize={0.2} color="white" anchorX="center" anchorY="middle" fillOpacity={0.5}>
+                        T
+                    </Text>
+                )}
+                {mode === 'frame' && (
+                    <mesh rotation={[-Math.PI / 2, 0, 0]}>
+                        <planeGeometry args={[4, 3]} />
+                        <meshBasicMaterial color={accentColor} wireframe transparent opacity={0.3} />
+                    </mesh>
+                )}
+            </group>
+        );
+    };
+
     return (
         <>
             {/* 🎓 ONBOARDING OVERLAY */}
@@ -672,23 +710,25 @@ export const InfiniteCanvas: React.FC<CanvasProps> = ({ spaceId, userId, userNam
                     </div>
                 </Html>
             )}
-            {/* Floor */}
-            {!hideFloor && (
-                <>
-                    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow onClick={handleClick}>
-                        <planeGeometry args={[200, 200]} /><meshStandardMaterial color="#080810" roughness={0.95} />
-                    </mesh>
-                    <gridHelper args={[200, 100, '#1a1a2a', '#0f0f18']} position={[0, 0.001, 0]} />
-                </>
-            )}
 
-            {/* If floor is hidden, we still need a click target for the canvas if no other floor is provided */}
-            {hideFloor && (
-                <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} onClick={handleClick}>
-                    <planeGeometry args={[1000, 1000]} />
-                    <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-                </mesh>
-            )}
+            {/* Ghost Preview */}
+            {renderGhost()}
+
+            {/* Interaction Plane - Raised to capture clicks over floor */}
+            <mesh
+                rotation={[-Math.PI / 2, 0, 0]}
+                position={[0, 0.05, 0]}
+                onClick={handleClick}
+                onPointerMove={(e) => {
+                    if (mode !== 'select' && mode !== 'pan') {
+                        setGhostPos([e.point.x, isVR ? 0.05 : 0.01, e.point.z]);
+                    }
+                }}
+                onPointerLeave={() => setGhostPos(null)}
+            >
+                <planeGeometry args={[1000, 1000]} />
+                <meshBasicMaterial visible={false} />
+            </mesh>
 
             {/* Objects */}
             {objects.map(obj => {
