@@ -74,7 +74,11 @@ export const saveUserToFirestore = async (user: User): Promise<boolean> => {
       name: user.name || 'Unknown User',
       picture: user.picture || '',
       role: user.role || 'USER',
+      businessRole: user.businessRole || '',
+      primaryIntent: user.primaryIntent || '',
       orgId: user.orgId || 'org_def',
+      hasCompletedOnboarding: user.hasCompletedOnboarding || false,
+      avatarUrl: user.avatarUrl || '',
       lastLogin: new Date().toISOString(),
       createdAt: user.createdAt || new Date().toISOString()
     }, { merge: true });

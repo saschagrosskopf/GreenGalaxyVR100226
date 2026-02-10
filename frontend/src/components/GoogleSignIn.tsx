@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 declare global {
   interface Window {
     google: any;
+    handleGoogleCredential: (response: any) => void;
   }
 }
 
@@ -15,53 +16,47 @@ const GoogleSignIn: React.FC<GoogleSignInProps> = ({ onSuccess }) => {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    let interval: any;
-
-    const initializeGSI = () => {
-      if (!window.google) return;
-
-      if (btnDivRef.current) {
-        // DEBUG: Output exact origin for whitelisting
-        console.log("🔒 [GoogleAuth] Origin Check:", window.location.origin);
-
-        try {
-          window.google.accounts.id.initialize({
-            client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
-            callback: (response: any) => {
-              console.log("Google Auth Success");
-              onSuccess(response.credential);
-            },
-            cancel_on_tap_outside: false,
-            prompt_parent_id: btnDivRef.current.id,
-            itp_support: true,
-            // Track initialization errors
-            error_callback: (err: any) => {
-              console.error("GSI Error Callback:", err);
-            }
-          });
-
-          window.google.accounts.id.renderButton(btnDivRef.current, {
-            theme: 'filled_black',
-            size: 'large',
-            type: 'standard',
-            text: 'continue_with',
-            shape: 'rectangular',
-            logo_alignment: 'left',
-            width: 280
-          });
-
-          setLoaded(true);
-          if (interval) clearInterval(interval);
-        } catch (e) {
-          console.error("Google Sign-In initialization error:", e);
-        }
+    // Set global callback so it's always reachable
+    window.handleGoogleCredential = (response: any) => {
+      console.log("✅ Google credential received via callback");
+      if (response.credential) {
+        onSuccess(response.credential);
       }
     };
 
-    if (window.google) {
+    let interval: any;
+
+    const initializeGSI = () => {
+      if (!window.google?.accounts?.id) return;
+      if (!btnDivRef.current) return;
+
+      try {
+        window.google.accounts.id.initialize({
+          client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
+          callback: window.handleGoogleCredential,
+          ux_mode: 'popup',
+        });
+
+        window.google.accounts.id.renderButton(btnDivRef.current, {
+          theme: 'filled_black',
+          size: 'large',
+          type: 'standard',
+          text: 'continue_with',
+          shape: 'rectangular',
+          width: 280,
+        });
+
+        setLoaded(true);
+        if (interval) clearInterval(interval);
+        console.log("🔐 Google Sign-In button rendered");
+      } catch (e) {
+        console.error("GSI init error:", e);
+      }
+    };
+
+    if (window.google?.accounts?.id) {
       initializeGSI();
     } else {
-      // Poll every 500ms for the script
       interval = setInterval(initializeGSI, 500);
     }
 

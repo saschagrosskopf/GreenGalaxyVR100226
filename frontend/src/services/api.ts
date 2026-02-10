@@ -5,10 +5,10 @@ import { storage, db } from '../logic';
 // @ts-ignore
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 // @ts-ignore
-import { collection, getDocs, doc, setDoc, onSnapshot, query, where, writeBatch, deleteDoc, addDoc, serverTimestamp, orderBy, DocumentData } from 'firebase/firestore';
+import { collection, getDocs, getDoc, doc, setDoc, onSnapshot, query, where, writeBatch, deleteDoc, addDoc, serverTimestamp, orderBy, DocumentData } from 'firebase/firestore';
 // import { GoogleGenAI, Type } from "@google/genai"; // Moved to Backend
 /// <reference types="vite/client" />
-import { getAuth } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
 
 export const CURRENT_TEMPLATE_VERSION = 10;
 // @ts-ignore
@@ -128,7 +128,40 @@ export const api = {
           throw new Error(error.detail || 'Authentication failed');
         }
 
-        return await response.json();
+        const data = await response.json();
+
+        // 🔄 MERGE FIRESTORE PROFILE (Avatar Persistence)
+        // The backend returns Google info, but we save custom avatar selection to Firestore.
+        try {
+          // @ts-ignore
+          const userRef = doc(db, 'users', data.user.id);
+          // @ts-ignore
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            const firestoreData = userSnap.data();
+            console.log('🔄 Merged persistent profile:', firestoreData);
+            data.user = {
+              ...data.user,
+              ...firestoreData,
+              // Ensure ID is preserved from backend
+              id: data.user.id
+            };
+          }
+        } catch (e) {
+          console.warn("⚠️ Failed to merge Firestore profile:", e);
+        }
+
+        // 🔐 SIGN IN TO FIREBASE FRONTEND (Required for Firestore writes like updateProfile)
+        try {
+          const auth = getAuth();
+          const cred = GoogleAuthProvider.credential(credential);
+          await signInWithCredential(auth, cred);
+          console.log("✅ Firebase Frontend Sign-In Success:", auth.currentUser?.uid);
+        } catch (fbError) {
+          console.warn("⚠️ Firebase Frontend Sign-In Warning (Avatar saving may not work):", fbError);
+        }
+
+        return data;
       } catch (e) {
         console.error("Backend Auth Error:", e);
         throw e;
@@ -339,19 +372,24 @@ export const api = {
   team: {
     list: async (): Promise<User[]> => [SEED_USER],
     invite: async (emails: string[]) => { },
-    updateProfile: async (data: { displayName: string; avatarUrl: string }) => {
+    updateProfile: async (data: { displayName?: string; avatarUrl?: string; hasCompletedOnboarding?: boolean }) => {
       const auth = getAuth();
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user) {
+        console.warn("⚠️ Update profile failed: No Firebase Auth User (are you signed in via Google credential?).");
+        return;
+      }
 
       const userRef = doc(db, 'users', user.uid);
-      await setDoc(userRef, {
-        name: data.displayName,
-        avatarUrl: data.avatarUrl,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
 
-      console.log(`✅ Profile updated for ${user.uid}: ${data.displayName}`);
+      const payload: any = { updatedAt: serverTimestamp() };
+      if (data.displayName) payload.name = data.displayName;
+      if (data.avatarUrl) payload.avatarUrl = data.avatarUrl;
+      if (data.hasCompletedOnboarding !== undefined) payload.hasCompletedOnboarding = data.hasCompletedOnboarding;
+
+      await setDoc(userRef, payload, { merge: true });
+
+      console.log(`✅ Profile persisted for ${user.uid}:`, payload);
     }
   },
   ideas: {

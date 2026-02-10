@@ -55,6 +55,10 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateProfile }) => {
                     <div className="ml-6">
                         <h2 className="text-3xl font-bold text-white">{displayName}</h2>
                         <p className="text-gg-purple font-medium">{user.email}</p>
+                        <div className="flex gap-2 mt-2 flex-wrap">
+                            {user.businessRole && <span className="bg-gg-cyan/20 text-gg-cyan px-2 py-0.5 rounded text-xs font-bold uppercase border border-gg-cyan/30">{user.businessRole}</span>}
+                            {user.primaryIntent && <span className="bg-gg-purple/20 text-gg-purple px-2 py-0.5 rounded text-xs font-bold uppercase border border-gg-purple/30">{user.primaryIntent}</span>}
+                        </div>
                         <p className="text-gray-400 text-sm mt-1">Member since: November 2025</p>
                     </div>
                 </div>

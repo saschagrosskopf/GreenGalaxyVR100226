@@ -1,5 +1,6 @@
 import React, { useState, useEffect, Suspense, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
+import { XR, XRButton, Controllers, Hands } from '@react-three/xr';
 import * as THREE from 'three';
 import { Stars, Environment, PerspectiveCamera, PointerLockControls, Gltf, useTexture } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, N8AO, DepthOfField, ChromaticAberration, GodRays, SSAO } from '@react-three/postprocessing';
@@ -197,6 +198,15 @@ const XRPreview: React.FC<Props> = ({ org, space, user, onExit, onUpdateUser }) 
     ts.setUpdateCallback((log) => setTranscriptionLog(log));
   }, []);
 
+  // 🔄 AUTO-ENTRY FOR RETURNING USERS
+  useEffect(() => {
+    // If user profile loads with an avatar, skip the selection screen
+    if (user?.avatarUrl && !hasEntered) {
+      console.log('✅ Detected existing avatar, entering space automatically.');
+      setHasEntered(true);
+    }
+  }, [user?.avatarUrl]);
+
   const handleCapture = async () => {
     if (!user || !space) return;
     setLoading(true);
@@ -301,8 +311,17 @@ const XRPreview: React.FC<Props> = ({ org, space, user, onExit, onUpdateUser }) 
   };
 
   const handleSelectAvatar = async (avatarId: string) => {
-    // Persist to backend/Firestore
-    await api.team.updateProfile({ displayName: user?.name || 'Guest', avatarUrl: avatarId });
+    // Persist to backend/Firestore (non-blocking with timeout)
+    try {
+      const updatePromise = api.team.updateProfile({ displayName: user?.name || 'Guest', avatarUrl: avatarId });
+      // Race with 2s timeout so we don't hang UI
+      await Promise.race([
+        updatePromise,
+        new Promise((_, reject) => setTimeout(() => reject('timeout'), 2000))
+      ]);
+    } catch (e) {
+      console.warn("Avatar update skipped/failed:", e);
+    }
 
     // Update local session state
     if (onUpdateUser) {
@@ -695,66 +714,96 @@ const XRPreview: React.FC<Props> = ({ org, space, user, onExit, onUpdateUser }) 
 
       {/* 🖼️ 3D ENGINE */}
       <div className="absolute inset-0" onClick={() => { if (hasEntered) { const canvas = document.querySelector('#xr-canvas canvas') as HTMLCanvasElement; if (canvas && !document.pointerLockElement) canvas.requestPointerLock(); } }}>
-        <Canvas shadows id="xr-canvas" gl={{ antialias: true }} dpr={[1, 2]}>
-          <color attach="background" args={['#080810']} />
-          {!isCustomEnv && <Stars radius={100} depth={50} count={2000} factor={4} />}
-          <Environment preset="night" />
-          <SceneLighting accentColor={config.wallColor} castShadows={true} />
-          <Suspense fallback={null}>
-            <Room
-              config={config} spaceId={space.id} templateId={space.templateId} user={user || undefined} hasEntered={hasEntered}
-              activeTool={activeTool} toolPayload={toolPayload} currentEmote={currentEmote || undefined} useColyseusMultiplayer={true} cameraMode={cameraMode}
-              onSelectAvatar={handleSelectAvatar} multiplayer={multiplayer}
-              assets={space.customAssets}
-              customGlbUrl={space.customAssets?.find(a => a.type === 'model' && a.category === 'scene')?.url}
-              colliderGlbUrl={space.customAssets?.find(a => a.type === 'model' && a.category === 'collider')?.url}
-              space={space}
-              isFullEnvironment={isCustomEnv}
-              enableReflections={enableReflections}
-              onUpdateUser={onUpdateUser}
-            />
-          </Suspense>
-          <SceneErrorBoundary>
-            {(() => {
-              let skyboxUrl = space.customAssets?.find(a => a.category === 'skybox')?.url;
-              if (!skyboxUrl) {
-                const sceneAsset = space.customAssets?.find(a => a.category === 'scene');
-                if (sceneAsset?.url) {
-                  const basename = sceneAsset.url.split('/').pop()?.split('.')[0];
-                  if (basename) skyboxUrl = `/assets/skyboxes/${basename}.png`;
-                }
-              }
+        {/* VR Button MUST be outside Canvas but inside the container */}
+        <XRButton
+          mode="VR"
+          sessionInit={{ optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] }}
+          style={{
+            position: 'absolute',
+            bottom: '24px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            padding: '12px 24px',
+            borderRadius: '24px',
+            backgroundColor: 'rgba(0,0,0,0.8)',
+            color: '#06B6D4',
+            border: '1px solid #06B6D4',
+            zIndex: 10000000,
+            fontWeight: 'bold',
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+            backdropFilter: 'blur(10px)',
+            cursor: 'pointer'
+          }}
+        >
+          {(status) => status === 'unsupported' ? 'VR Unsupported' : 'Enter VR'}
+        </XRButton>
 
-              if (skyboxUrl) {
-                return (
-                  <Suspense fallback={null}>
-                    <SmartEnvironment url={skyboxUrl} />
-                  </Suspense>
-                );
-              }
-              return null;
-            })()}
-          </SceneErrorBoundary>
-          <PerspectiveCamera makeDefault position={[0, 1.6, 5]} fov={75} />
-          {hasEntered && <PointerLockControls selector="#xr-canvas" />}
-          <EffectComposer>
-            <Bloom intensity={0.5} luminanceThreshold={0.9} mipmapBlur />
-            <Vignette offset={0.3} darkness={0.5} />
-            {enableAO && (
-              <N8AO
-                intensity={1.0} // Reduced from 5.0
-                aoRadius={0.5}
-                distanceFalloff={2.0}
+        <Canvas shadows id="xr-canvas" gl={{ antialias: true }} dpr={[1, 2]}>
+          <XR>
+            <Controllers />
+            <Hands />
+
+            <color attach="background" args={['#080810']} />
+            {!isCustomEnv && <Stars radius={100} depth={50} count={2000} factor={4} />}
+            <Environment preset="night" />
+            <SceneLighting accentColor={config.wallColor} castShadows={true} />
+            <Suspense fallback={null}>
+              <Room
+                config={config} spaceId={space.id} templateId={space.templateId} user={user || undefined} hasEntered={hasEntered}
+                activeTool={activeTool} toolPayload={toolPayload} currentEmote={currentEmote || undefined} useColyseusMultiplayer={true} cameraMode={cameraMode}
+                onSelectAvatar={handleSelectAvatar} multiplayer={multiplayer}
+                assets={space.customAssets}
+                customGlbUrl={space.customAssets?.find(a => a.type === 'model' && a.category === 'scene')?.url}
+                colliderGlbUrl={space.customAssets?.find(a => a.type === 'model' && a.category === 'collider')?.url}
+                space={space}
+                isFullEnvironment={isCustomEnv}
+                enableReflections={enableReflections}
+                onUpdateUser={onUpdateUser}
               />
-            )}
-            {enableDOF && (
-              <DepthOfField
-                focusDistance={1.5} // where to focus
-                focalLength={0.01} // focal length
-                bokehScale={1} // bokeh size
-              />
-            )}
-          </EffectComposer>
+            </Suspense>
+            <SceneErrorBoundary>
+              {(() => {
+                let skyboxUrl = space.customAssets?.find(a => a.category === 'skybox')?.url;
+                if (!skyboxUrl) {
+                  const sceneAsset = space.customAssets?.find(a => a.category === 'scene');
+                  if (sceneAsset?.url) {
+                    const basename = sceneAsset.url.split('/').pop()?.split('.')[0];
+                    if (basename) skyboxUrl = `/assets/skyboxes/${basename}.png`;
+                  }
+                }
+
+                if (skyboxUrl) {
+                  return (
+                    <Suspense fallback={null}>
+                      <SmartEnvironment url={skyboxUrl} />
+                    </Suspense>
+                  );
+                }
+                return null;
+              })()}
+            </SceneErrorBoundary>
+            <PerspectiveCamera makeDefault position={[0, 1.6, 5]} fov={75} />
+            {hasEntered && <PointerLockControls selector="#xr-canvas" />}
+            <EffectComposer>
+              <Bloom intensity={0.5} luminanceThreshold={0.9} mipmapBlur />
+              <Vignette offset={0.3} darkness={0.5} />
+              {enableAO && (
+                <N8AO
+                  intensity={1.0} // Reduced from 5.0
+                  aoRadius={0.5}
+                  distanceFalloff={2.0}
+                />
+              )}
+              {enableDOF && (
+                <DepthOfField
+                  focusDistance={1.5} // where to focus
+                  focalLength={0.01} // focal length
+                  bokehScale={1} // bokeh size
+                />
+              )}
+            </EffectComposer>
+          </XR>
         </Canvas>
       </div>
     </div>

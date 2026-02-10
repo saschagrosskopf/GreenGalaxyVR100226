@@ -57,7 +57,8 @@ const App: React.FC = () => {
                 name: userData.name || firebaseUser.displayName || 'GreenGalaxy User',
                 picture: userData.picture || firebaseUser.photoURL || `https://ui-avatars.com/api/?name=User&background=06B6D4&color=fff&size=128`,
                 role: userData.role || 'OWNER',
-                orgId: userData.orgId || 'org_def'
+                orgId: userData.orgId || 'org_def',
+                hasCompletedOnboarding: true
               },
               org: {
                 id: 'org_def',
@@ -116,60 +117,68 @@ const App: React.FC = () => {
   };
 
   const handleGoogleSuccess = async (credential: string) => {
-    // First try to decode the Google JWT to get real user info
+    console.log("🔐 Google credential received, processing login...");
+
+    // Decode the Google JWT to get user info (always works, no Firebase dependency)
     const googleUser = decodeGoogleJWT(credential);
 
-    try {
-      // Authenticate with Firebase Auth using the Google credential
-      const firebaseUser = await authenticateWithGoogle(credential);
-      console.log("🔥 Firebase Auth successful:", firebaseUser?.email);
+    if (!googleUser) {
+      console.error("❌ Could not decode Google JWT, falling back to demo");
+      handleDemoLogin();
+      return;
+    }
 
-      // Try backend auth in parallel
+    console.log("✅ Google login:", googleUser.name, googleUser.email);
+
+    const userFromGoogle = {
+      id: googleUser.sub,
+      email: googleUser.email,
+      name: googleUser.name,
+      picture: googleUser.picture,
+      role: 'OWNER' as const,
+      orgId: 'org_def',
+      hasCompletedOnboarding: true
+    };
+
+    // Try Firebase Auth in background (non-blocking, with timeout)
+    try {
+      const fbPromise = authenticateWithGoogle(credential);
+      await Promise.race([fbPromise, new Promise((_, r) => setTimeout(() => r('timeout'), 3000))]);
+    } catch (e) {
+      console.warn("⚠️ Firebase Auth skipped:", e);
+    }
+
+    // Try backend auth (non-blocking)
+    try {
       const res: AuthResponse = await api.auth.google(credential);
       if (res.status === 'ok' && res.session) {
-        // No localStorage - data persisted via Firebase Auth + Firestore
         setSession(res.session);
-        await saveUserToFirestore(res.session.user);
-      } else if (res.status === 'needsRegistration' && res.googleProfile) {
-        setOnboardingProfile(res.googleProfile);
+        await saveUserToFirestore(res.session.user).catch(() => { });
+        return;
       }
     } catch (e) {
-      console.error("Backend unavailable, using Firebase Auth session:", e);
-      // Use real Google user info if available, otherwise fallback
-      if (googleUser) {
-        const userToSave = {
-          id: googleUser.sub,
-          email: googleUser.email,
-          name: googleUser.name,
-          picture: googleUser.picture,
-          role: 'OWNER' as const,
-          orgId: 'org_def'
-        };
-
-        // Save to Firestore for persistence (no localStorage!)
-        await saveUserToFirestore(userToSave);
-
-        setSession({
-          token: credential,
-          user: userToSave,
-          org: {
-            id: 'org_def',
-            name: 'GreenGalaxy HQ',
-            primaryColor: '#06B6D4',
-            secondaryColor: '#1E293B',
-            accentColor: '#F472B6',
-            status: 'VERIFIED',
-            domains: ['greengalaxy.tech'],
-            isBrandVerified: true,
-            plan: 'ENTERPRISE',
-            subscriptionStatus: 'ACTIVE'
-          }
-        });
-      } else {
-        // Only use demo if no Google user info available
-        handleDemoLogin();
-      }
+      console.warn("⚠️ Backend auth skipped:", e);
     }
+
+    // Fallback — set session directly from Google JWT (always works)
+    try { await saveUserToFirestore(userFromGoogle); } catch (e) { /* ok */ }
+
+    setSession({
+      token: credential,
+      user: userFromGoogle,
+      org: {
+        id: 'org_def',
+        name: 'GreenGalaxy HQ',
+        primaryColor: '#06B6D4',
+        secondaryColor: '#1E293B',
+        accentColor: '#F472B6',
+        status: 'VERIFIED',
+        domains: ['greengalaxy.tech'],
+        isBrandVerified: true,
+        plan: 'ENTERPRISE',
+        subscriptionStatus: 'ACTIVE'
+      }
+    });
   };
 
 

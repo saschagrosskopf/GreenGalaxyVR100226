@@ -3,7 +3,7 @@ import time
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from .api import ai_routes, auth_routes
+from .api import ai_routes, auth_routes, nexus_routes
 from .services.auth_service import HAS_FULL_CREDENTIALS
 import os
 
@@ -31,7 +31,8 @@ app.include_router(auth_routes.router)
 app.include_router(nexus_routes.router)
 
 # CORS configuration (Enterprise Hardening)
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173")
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.replace(";", ",").split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,

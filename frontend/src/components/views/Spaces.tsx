@@ -9,8 +9,10 @@ interface SpacesProps {
 }
 
 const Spaces: React.FC<SpacesProps> = ({ setView, onPreview, orgId }) => {
+  // Show demo spaces IMMEDIATELY, don't wait for backend
   const [spaces, setSpaces] = useState<Space[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // No global loading state for UI
+  const [isSyncing, setIsSyncing] = useState(true); // Background sync state
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newSpaceData, setNewSpaceData] = useState({ name: '', mode: '1', template: '1', workshopTemplate: '0' });
 
@@ -132,20 +134,44 @@ const Spaces: React.FC<SpacesProps> = ({ setView, onPreview, orgId }) => {
 
   useEffect(() => {
     loadSpaces();
+
+    // 🚀 AGGRESSIVE PRELOADING
+    // Start downloading the heavy 3D assets while user is browsing the menu
+    try {
+      const assetsToPreload = [
+        '/assets/environments/boardroom.glb',
+        '/assets/environments/boardroom_colliders.glb',
+        '/assets/environments/Bluforce.glb',
+        '/assets/environments/office_colliders.glb'
+      ];
+
+      // We need to import useGLTF dynamically or just use the global loader if available
+      // But adding a top-level import is cleaner. For now using a dynamic approach to avoid breaking types if d.ts missing
+      import('@react-three/drei').then(({ useGLTF }) => {
+        assetsToPreload.forEach(url => {
+          console.log(`🚀 Preloading asset: ${url}`);
+          useGLTF.preload(url);
+        });
+      });
+    } catch (e) { console.warn("Preload failed", e); }
   }, [orgId]);
 
   const loadSpaces = async () => {
-    setLoading(true);
+    // ⚡️ OPTIMISTIC UI: Show demo spaces immediately
+    setSpaces(DEMO_SPACES);
+    setIsSyncing(true);
+
     try {
+      // Background sync
       const realSpaces = await api.spaces.list(orgId);
       // Filter out demo spaces if they already exist in real data to avoid duplicates
       const uniqueDemoSpaces = DEMO_SPACES.filter(ds => !realSpaces.find(rs => rs.id === ds.id));
       setSpaces([...realSpaces, ...uniqueDemoSpaces]);
     } catch (e) {
-      console.error("Firestore sync failed, using local archive:", e);
-      setSpaces(DEMO_SPACES);
+      console.warn("Firestore sync failed, keeping local archive:", e);
+      // No action needed, DEMO_SPACES already visible
     } finally {
-      setLoading(false);
+      setIsSyncing(false);
     }
   };
 
