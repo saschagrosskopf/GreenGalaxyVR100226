@@ -1,0 +1,36 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🚀 RENDER.COM DEPLOYMENT
+# Render Blueprint for GreenGalaxy Colyseus Server
+# ═══════════════════════════════════════════════════════════════════════════════
+# Deploy by:
+# 1. Push this file to your repo root as render.yaml
+# 2. Connect repo to Render.com
+# 3. Click "New Blueprint Instance"
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+  - type: web
+    name: greengalaxy-colyseus
+    runtime: node
+    region: frankfurt  # Change to your preferred region
+    plan: starter      # starter, standard, or pro
+    
+    # Build settings
+    buildCommand: cd MVP/server && npm ci && npm run build
+    startCommand: cd MVP/server && node build/index.js
+    
+    # Environment
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 2567
+    
+    # Health check
+    healthCheckPath: /hello_world
+    
+    # Auto-deploy on push to main
+    autoDeploy: true
+    
+    # Branch to deploy from
+    branch: main

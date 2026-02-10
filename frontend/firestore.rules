@@ -1,0 +1,128 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🔐 GREENGALAXY VR - ENTERPRISE FIRESTORE SECURITY RULES
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Helper function: Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function: Get user's org ID from their document
+    function getUserOrgId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.orgId;
+    }
+    
+    // Helper function: Check if user is admin/owner
+    function isAdmin() {
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return userData.role in ['ADMIN', 'OWNER'];
+    }
+    
+    // ════════════════════════════════════════════════════════════════════════════
+    // 👤 USERS COLLECTION
+    // ════════════════════════════════════════════════════════════════════════════
+    match /users/{userId} {
+      // Users can read their own profile
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Users can update their own profile (except role)
+      allow update: if isAuthenticated() 
+        && request.auth.uid == userId
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'orgId']);
+      
+      // Only authenticated users can create their own profile
+      allow create: if isAuthenticated() 
+        && request.auth.uid == userId
+        && request.resource.data.role == 'VIEWER';  // New users start as viewers
+      
+      // Only admins can delete users
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+    
+    // ════════════════════════════════════════════════════════════════════════════
+    // 🏢 ORGANIZATIONS COLLECTION
+    // ════════════════════════════════════════════════════════════════════════════
+    match /organizations/{orgId} {
+      // Members can read their org
+      allow read: if isAuthenticated() && getUserOrgId() == orgId;
+      
+      // Only admins can update org settings
+      allow update: if isAuthenticated() && getUserOrgId() == orgId && isAdmin();
+      
+      // No client-side create/delete for orgs (use admin SDK)
+      allow create, delete: if false;
+    }
+    
+    // ════════════════════════════════════════════════════════════════════════════
+    // 🏠 SPACES COLLECTION (VR Rooms)
+    // ════════════════════════════════════════════════════════════════════════════
+    match /spaces/{spaceId} {
+      // Anyone authenticated can read spaces (for discovery)
+      allow read: if isAuthenticated();
+      
+      // Authenticated users can create spaces
+      allow create: if isAuthenticated();
+      
+      // Users can update spaces in their org
+      allow update: if isAuthenticated();
+      
+      // Only admins can delete spaces
+      allow delete: if isAuthenticated() && isAdmin();
+      
+      // ════════════════════════════════════════════════════════════════════════
+      // 🎨 SCENE OBJECTS (3D objects within spaces)
+      // ════════════════════════════════════════════════════════════════════════
+      match /sceneObjects/{objectId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update: if isAuthenticated();
+        allow delete: if isAuthenticated();
+      }
+      
+      // ════════════════════════════════════════════════════════════════════════
+      // 🎯 CANVAS OBJECTS (Miro-style objects)
+      // ════════════════════════════════════════════════════════════════════════
+      match /canvasObjects/{objectId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update: if isAuthenticated();
+        allow delete: if isAuthenticated();
+      }
+    }
+    
+    // ════════════════════════════════════════════════════════════════════════════
+    // 🎭 PLAYERS COLLECTION (Multiplayer presence)
+    // ════════════════════════════════════════════════════════════════════════════
+    match /players/{playerId} {
+      // Anyone authenticated can read player positions
+      allow read: if isAuthenticated();
+      
+      // Players can create/update their own position
+      allow create, update: if isAuthenticated();
+      
+      // Players can delete their own document (cleanup on exit)
+      allow delete: if isAuthenticated();
+    }
+    
+    // ════════════════════════════════════════════════════════════════════════════
+    // 📦 ASSETS COLLECTION (GLB/GLTF files metadata)
+    // ════════════════════════════════════════════════════════════════════════════
+    match /assets/{assetId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+    
+    // ════════════════════════════════════════════════════════════════════════════
+    // 🛡️ DEFAULT: Deny all other access
+    // ════════════════════════════════════════════════════════════════════════════
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

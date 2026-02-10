@@ -1,0 +1,80 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🔐 GREENGALAXY VR - STORAGE SECURITY RULES
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Helper: Check authentication
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper: Check file size (max 50MB for GLB files)
+    function isValidSize() {
+      return request.resource.size < 50 * 1024 * 1024;
+    }
+    
+    // Helper: Check valid content types
+    function isValidContentType() {
+      return request.resource.contentType.matches('model/gltf.*') 
+        || request.resource.contentType.matches('application/octet-stream')
+        || request.resource.contentType.matches('image/.*')
+        || request.resource.contentType.matches('video/.*');
+    }
+    
+    // ════════════════════════════════════════════════════════════════════════════
+    // 📦 ASSETS FOLDER - 3D Models, Images, Videos
+    // ════════════════════════════════════════════════════════════════════════════
+    match /assets/{allPaths=**} {
+      // Anyone authenticated can read assets
+      allow read: if isAuthenticated();
+      
+      // Authenticated users can upload with size/type restrictions
+      allow create: if isAuthenticated() 
+        && isValidSize() 
+        && isValidContentType();
+      
+      // Allow updates only to metadata, not content replacement
+      allow update: if isAuthenticated();
+      
+      // Only authenticated users can delete their uploads
+      allow delete: if isAuthenticated();
+    }
+    
+    // ════════════════════════════════════════════════════════════════════════════
+    // 👤 USER AVATARS
+    // ════════════════════════════════════════════════════════════════════════════
+    match /avatars/{userId}/{allPaths=**} {
+      // Anyone can view avatars
+      allow read: if true;
+      
+      // Users can only upload to their own avatar folder
+      allow write: if isAuthenticated() 
+        && request.auth.uid == userId
+        && request.resource.size < 10 * 1024 * 1024  // 10MB max for avatars
+        && request.resource.contentType.matches('model/gltf.*|application/octet-stream');
+    }
+    
+    // ════════════════════════════════════════════════════════════════════════════
+    // 🏢 ORGANIZATION BRANDING
+    // ════════════════════════════════════════════════════════════════════════════
+    match /branding/{orgId}/{allPaths=**} {
+      // Anyone can view branding (logos, etc.)
+      allow read: if true;
+      
+      // Only org members can upload branding
+      allow write: if isAuthenticated()
+        && request.resource.size < 5 * 1024 * 1024  // 5MB max for images
+        && request.resource.contentType.matches('image/.*');
+    }
+    
+    // ════════════════════════════════════════════════════════════════════════════
+    // 🛡️ DEFAULT: Deny all other access
+    // ════════════════════════════════════════════════════════════════════════════
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

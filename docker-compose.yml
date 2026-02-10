@@ -1,0 +1,46 @@
+# 🚀 GreenGalaxy VR - MASTER ORCHESTRATION
+# "The Full App" - Frontend, Backend, and Multiplayer
+
+version: '3.8'
+
+services:
+  # 1. Frontend (Nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+      - multiplayer
+    networks:
+      - greengalaxy-network
+
+  # 2. API Backend (FastAPI)
+  backend:
+    build:
+      context: ./backend
+    environment:
+      - ALLOW_UNVERIFIED_AUTH=true
+      - PORT=8080
+    ports:
+      - "8080:8080"
+    networks:
+      - greengalaxy-network
+
+  # 3. Multiplayer (Colyseus)
+  multiplayer:
+    build:
+      context: ./MVP/server
+    environment:
+      - NODE_ENV=production
+      - PORT=2567
+    ports:
+      - "2567:2567"
+    networks:
+      - greengalaxy-network
+
+networks:
+  greengalaxy-network:
+    driver: bridge
